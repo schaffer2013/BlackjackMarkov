@@ -1,0 +1,11 @@
+azi.py
+*.csv
+blackjack.py
+caboose.py
+dirtyDealer.py
+neural.py
+solar.py
+StateAndAction.py
+test.py
+weights.pkl
+.vscode/launch.json
