@@ -9,3 +9,7 @@ StateAndAction.py
 test.py
 weights.pkl
 .vscode/launch.json
+*.pyc
+reg.py
+csvtets.py
+combos.py

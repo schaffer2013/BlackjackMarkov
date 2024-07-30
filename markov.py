@@ -1,10 +1,14 @@
 # Define softness options
 import csv
+import os
 import time
+from combos import getAllCombos
 
 LOSS = -1.0
 PUSH = 0.0
 WIN = 1.0
+
+DECK_COUNT = 1
 
 NO_ACE = 'NO_ACE'
 SOFT = 'SOFT'
@@ -12,6 +16,13 @@ HARD = 'HARD'
 
 FULL_DECK = [4, 16, 4, 4, 4, 4, 4, 4, 4, 4]
 RANKS = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]
+
+FILE_NAME = f'blackjack_ev_results_{DECK_COUNT}_decks.csv'
+
+existing_results = []
+
+global hitEVcount
+hitEVcount = 0
 
 noAceCount = 20  # From 2 to 21 (inclusive) 
 hardCount = 10   # HARD options for 12-16
@@ -29,6 +40,19 @@ HAND_VALUE_ARRAY = [
     (22, NO_ACE)  # Bust case
 ]
 EMPTY = [0.0] * TOTAL_ARRAY_LENGTH
+
+if os.path.isfile(FILE_NAME):
+    with open(FILE_NAME, mode='r', newline='') as file:
+        csv_reader = csv.reader(file)
+
+        # Skip the header
+        next(csv_reader, None)
+
+        # Iterate over each row in the CSV file
+        for row in csv_reader:
+            # Process each row
+            existing_results.append(list(map(int, row[0:3])))
+            #print(row)  # Or do something else with the row data
 
 def unitTest():
     if len(HAND_VALUE_ARRAY) != TOTAL_ARRAY_LENGTH:
@@ -207,14 +231,14 @@ def dealerFinalArray(arr):
     runningArray.append(arr[-1])
     return runningArray
 
-def getDealerResultFromUpcard(dealerUpcard):
+def getDealerResultFromUpcard(dealerUpcard, remainingDeck):
     softness = SOFT if dealerUpcard == 11 else NO_ACE
-    dealerResult = dealerHold(dealerUpcard, isSoft= softness)
+    dealerResult = dealerHold(dealerUpcard, remainingDeck, isSoft= softness)
     return dealerResult
 
-def checkStayEV(playerHandValue, dealerUpcard):
+def checkStayEV(playerHandValue, dealerUpcard, remainingDeck):
 
-    dealerResult = getDealerResultFromUpcard(dealerUpcard)
+    dealerResult = getDealerResultFromUpcard(dealerUpcard, remainingDeck)
     finalArr = dealerFinalArray(dealerResult)
     # finalArr is chances for 17, 18, 19, 20, 21 and bust
     if playerHandValue < 17:
@@ -222,9 +246,9 @@ def checkStayEV(playerHandValue, dealerUpcard):
     if playerHandValue > 21:
         return LOSS
     ev = 0
-    for val in range(17, 21 + 1):
+    for val in range(17, 22 + 1):
         prob = finalArr[val - 17]
-        if val < playerHandValue:
+        if val < playerHandValue or val > 21:
             result = WIN
         elif val == playerHandValue:
             result = PUSH
@@ -234,11 +258,16 @@ def checkStayEV(playerHandValue, dealerUpcard):
     return ev
 
 def checkHitEV(playerHandValue, dealerUpcard, isSoft = NO_ACE, remainingDeck = FULL_DECK):
+    global hitEVcount
+    hitEVcount += 1
+    if hitEVcount % 10000 == 0:
+        print(hitEVcount)
+
     HIT = 1
     STAY = 0
 
     if playerHandValue > 21:
-        return LOSS, STAY
+        return LOSS, STAY, 1
 
     runningSums = [0.0] * TOTAL_ARRAY_LENGTH
     probsToDrawCard = deckToProbs(remainingDeck)
@@ -249,17 +278,19 @@ def checkHitEV(playerHandValue, dealerUpcard, isSoft = NO_ACE, remainingDeck = F
 
     runningTotalEV = 0.0
 
+    totalCallCount = 1
     for i in range(TOTAL_ARRAY_LENGTH):
         if runningSums[i] > 0.0:
             newVal, newSoft = HAND_VALUE_ARRAY[i]
             removedCard = getRemovedCard(newVal, playerHandValue)
-            nextGen, _ = checkHitEV(newVal, dealerUpcard, isSoft = newSoft, remainingDeck= removeValFromDeck(remainingDeck, removedCard))
+            nextGen, _, callCount = checkHitEV(newVal, dealerUpcard, isSoft = newSoft, remainingDeck= removeValFromDeck(remainingDeck, removedCard))
+            totalCallCount += callCount
 
             runningTotalEV += nextGen * runningSums[i]
             #debugList = getDebugList(runningTotal)
             a = 1
     hitEV = runningTotalEV
-    stayEV = checkStayEV(playerHandValue, dealerUpcard)
+    stayEV = checkStayEV(playerHandValue, dealerUpcard, remainingDeck)
 
 
     bestEV = max(hitEV, stayEV)
@@ -268,7 +299,7 @@ def checkHitEV(playerHandValue, dealerUpcard, isSoft = NO_ACE, remainingDeck = F
     else:
         bestDecision = HIT
 
-    return bestEV, bestDecision
+    return bestEV, bestDecision, totalCallCount
 
     a = 1
         
@@ -278,32 +309,64 @@ unitTest()
 
 total_start = time.time()
 
+possibleCombos = []
+typicalRange = range(2, 11+1)
+for i in typicalRange:
+    for j in typicalRange:
+        for k in typicalRange:
+            if j >= i:
+                possibleCombos.append([i, j, k])
+
+combosAndOcc = getAllCombos(DECK_COUNT)
+
+for c in existing_results:
+    if c in possibleCombos:
+        possibleCombos.remove(c)
+    else:
+        print(f"{c} not found")
+
+testCombosRemaining = possibleCombos.copy()
+testCombosRemaining.reverse()
+
+if not os.path.isfile(FILE_NAME):
 # Open CSV file for writing
-with open('blackjack_ev_results.csv', mode='w', newline='') as file:
-    writer = csv.writer(file)
-    # Write headers
-    writer.writerow(['Player Low Card', 'Player High Card', 'Dealer Upcard', 'EV_hit', 'Best Decision', 'time(s)'])
+    with open(FILE_NAME, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        # Write headers
+        writer.writerow(['Player Low Card', 'Player High Card', 'Dealer Upcard', 'EV_hit', 'Best Decision', 'time(s)', 'Recursive Calls', 'Occurrences'])
 
-    for playerLowCard in range(2, 11 + 1):
-        for playerHighCard in range(playerLowCard, 11 + 1):
-            for dealerUpcard in range(2, 11 + 1):
-                start = time.time()
-                playerHand = [playerLowCard, playerHighCard]
+for playerLowCard, playerHighCard, dealerUpcard in testCombosRemaining:
+    print(f"{playerLowCard}, {playerHighCard}, {dealerUpcard} evaluated.")
+    combo = [playerLowCard, playerHighCard, dealerUpcard]
+    if combo in existing_results:
+        print (f"{combo} founds and skipped")
+        break
 
-                playerVal, playerSoft = blackjack_hand_value(playerHand)
+    start = time.time()
+    playerHand = [playerLowCard, playerHighCard]
 
-                deck = FULL_DECK.copy()
-                deck = removeValFromDeck(deck, dealerUpcard)
-                for c in playerHand:
-                    deck = removeValFromDeck(deck, c)
+    playerVal, playerSoft = blackjack_hand_value(playerHand)
 
-                EV_hit = checkHitEV(playerVal, dealerUpcard, playerSoft)
-                elapsed = time.time() - start
-                #print(f"Completed in {elapsed} seconds.")
+    deck = FULL_DECK.copy()
+    deck = removeValFromDeck(deck, dealerUpcard)
+    for c in playerHand:
+        deck = removeValFromDeck(deck, c)
 
-                # Write to CSV file
-                writer.writerow([playerLowCard, playerHighCard, dealerUpcard, EV_hit[0], EV_hit[1], elapsed])
-                print(f"{elapsed} seconds")
+    EV_hit = checkHitEV(playerVal, dealerUpcard, playerSoft)
+    elapsed = time.time() - start
+    #print(f"Completed in {elapsed} seconds.")
+
+    # Write to CSV file
+    with open(FILE_NAME, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        bestMove = 'HIT' if EV_hit[1] else 'STAY'
+        for c in combosAndOcc:
+            if (playerLowCard, playerHighCard, dealerUpcard) == c[0:3]:
+                occ = c[3]
+                break
+        writer.writerow([playerLowCard, playerHighCard, dealerUpcard, EV_hit[0], bestMove, elapsed, EV_hit[2], occ])
+
+        print(f"{elapsed} seconds")
 
 total_elapsed = time.time() - total_start
 print(f"Completed in {total_elapsed} seconds.")
