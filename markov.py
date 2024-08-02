@@ -1,7 +1,11 @@
 # Define softness options
 import csv
+from functools import cache
 import os
 import time
+from datetime import datetime, timedelta
+
+import numpy as np
 from combos import getAllCombos
 
 LOSS = -1.0
@@ -14,7 +18,8 @@ NO_ACE = 'NO_ACE'
 SOFT = 'SOFT'
 HARD = 'HARD'
 
-FULL_DECK = [4, 16, 4, 4, 4, 4, 4, 4, 4, 4]
+FULL_DECK_STOCK = [4, 16, 4, 4, 4, 4, 4, 4, 4, 4]
+FULL_DECK = np.multiply(FULL_DECK_STOCK, DECK_COUNT)
 RANKS = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]
 
 FILE_NAME = f'blackjack_ev_results_{DECK_COUNT}_decks.csv'
@@ -65,18 +70,45 @@ def unitTest():
     
     print("All tests passed.")
 
-def deckToProbs(deck):
-    total = sum(deck)
-    probs = []
-    for c in deck:
-        probs.append(c/total)
-    return probs
+def estimate_completion_time(start_time, percent_complete, numEvents):
+    """
+    Estimate the completion time given a start time and the percent completed.
 
-def scaleList(oldList, scalar):
-    return [i * scalar for i in oldList]
+    Parameters:
+    start_time (datetime): The time the process started.
+    percent_complete (float): The percent completion of the process (0 to 100).
+
+    Returns:
+    datetime: The estimated completion time.
+    """
+
+    if not (0 <= numEvents):
+        raise ValueError("BAD")
+    if not (0 <= percent_complete <= 100):
+        raise ValueError("Percent complete must be between 0 and 100.")
+
+    if percent_complete == 0:
+        print("Percent complete cannot be zero.")
+        return None
+
+    current_time = datetime.now()
+    elapsed_time = current_time - start_time
+    estimated_total_time = elapsed_time / (percent_complete)
+    estimated_completion_time = start_time + estimated_total_time
+    timePerEvent = elapsed_time/numEvents
+    
+    return estimated_completion_time, timePerEvent
+
+def deckToProbs(deck):
+    deck_array = np.array(deck)
+    total = deck_array.sum()
+    return (deck_array / total).tolist()
 
 def addLists(list1, list2):
-    return [sum(x) for x in zip(list1, list2)]
+    return np.add(list1, list2).tolist()
+
+def scaleList(oldList, scalar):
+    return np.multiply(oldList, scalar).tolist()
 
 def valueToArray(hand_value_tuple):
     """
@@ -171,6 +203,7 @@ def arrFromHand(hand):
     value, softness = blackjack_hand_value(hand)
     return valueToArray((value, softness))
 
+@cache
 def newCardAddedToArray(oldHandValue, wasSoft, newCardValue):
     value, softness = update_blackjack_hand(oldHandValue, wasSoft, newCardValue)
     return valueToArray((value, softness))
@@ -212,12 +245,12 @@ def dealerHold(value, remainingDeck = FULL_DECK, isSoft = NO_ACE):
             nextGen = dealerHold(newVal, isSoft = newSoft, remainingDeck= removeValFromDeck(remainingDeck, removedCard))
 
             runningTotal = addLists(runningTotal, scaleList(nextGen, runningSums[i]))
-            debugList = getDebugList(runningSums)
+            #debugList = getDebugList(runningSums)
             a = 1
 
     return runningTotal
 
-def getDebugList(l):
+#def getDebugList(l):
     debugList = []
     for i in range(TOTAL_ARRAY_LENGTH):
         debugList.append([HAND_VALUE_ARRAY[i], l[i]])
@@ -260,8 +293,10 @@ def checkStayEV(playerHandValue, dealerUpcard, remainingDeck):
 def checkHitEV(playerHandValue, dealerUpcard, isSoft = NO_ACE, remainingDeck = FULL_DECK):
     global hitEVcount
     hitEVcount += 1
-    if hitEVcount % 10000 == 0:
-        print(hitEVcount)
+    if hitEVcount % 1000 == 0:
+        estimated_time, timePerEvent = estimate_completion_time(start_datetime, (hitEVcount - lastCount)/74239, (hitEVcount - lastCount))
+        print(f"Current time: {datetime.now()} Estimated completion time: {estimated_time} Time per event: {timePerEvent}")
+        #print(hitEVcount)
 
     HIT = 1
     STAY = 0
@@ -274,7 +309,7 @@ def checkHitEV(playerHandValue, dealerUpcard, isSoft = NO_ACE, remainingDeck = F
     for rank, prob in zip(RANKS, probsToDrawCard):
         nextRankArray = newCardAddedToArray(playerHandValue, isSoft, rank)
         runningSums = addLists(runningSums, scaleList(nextRankArray, prob))
-    debugList = getDebugList(runningSums)
+    #debugList = getDebugList(runningSums)
 
     runningTotalEV = 0.0
 
@@ -343,6 +378,10 @@ for playerLowCard, playerHighCard, dealerUpcard in testCombosRemaining:
         break
 
     start = time.time()
+    global start_datetime
+    start_datetime = datetime.now()
+    global lastCount
+    lastCount = hitEVcount
     playerHand = [playerLowCard, playerHighCard]
 
     playerVal, playerSoft = blackjack_hand_value(playerHand)
