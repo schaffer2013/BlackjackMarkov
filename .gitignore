@@ -12,5 +12,4 @@ weights.pkl
 *.pyc
 reg.py
 csvtets.py
-combos.py
 *.svg

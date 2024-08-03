@@ -4,6 +4,7 @@ from functools import cache
 import os
 import time
 from datetime import datetime, timedelta
+from subset import get
 
 import numpy as np
 from combos import getAllCombos
@@ -121,12 +122,12 @@ def valueToArray(hand_value_tuple):
     list: An array where indices represent hand values and bust, with True indicating the current hand value.
     """
     value, softness = hand_value_tuple
-    arr = [False] * TOTAL_ARRAY_LENGTH
+    arr = np.zeros(TOTAL_ARRAY_LENGTH, dtype=bool)
     
     # If bust
     if value > 21:
         arr[-1] = True
-        return arr
+        return arr.tolist()
     
     # Hard counts, including HARD options
     if softness == NO_ACE:
@@ -137,7 +138,7 @@ def valueToArray(hand_value_tuple):
     else:
         arr[(value - 11) + noAceCount] = True
     
-    return arr
+    return arr.tolist()
 
 def blackjack_hand_value(hand):
     """
@@ -217,9 +218,9 @@ def getRemovedCard(newValue, oldValue):
 def removeValFromDeck(deck, val):
     if not (2 <= val <= 11):
         raise ValueError("New card value must be between 2 and 11.")
-    newDeck = deck.copy()
-    newDeck[11-val] -= 1
-    return newDeck
+    deck_array = np.array(deck)
+    deck_array[11 - val] -= 1
+    return deck_array.tolist()
 
 def dealerHold(value, remainingDeck = FULL_DECK, isSoft = NO_ACE):
     if value >= 17:
@@ -251,18 +252,19 @@ def dealerHold(value, remainingDeck = FULL_DECK, isSoft = NO_ACE):
     return runningTotal
 
 #def getDebugList(l):
-    debugList = []
-    for i in range(TOTAL_ARRAY_LENGTH):
-        debugList.append([HAND_VALUE_ARRAY[i], l[i]])
-    return debugList
+    # debugList = []
+    # for i in range(TOTAL_ARRAY_LENGTH):
+    #     debugList.append([HAND_VALUE_ARRAY[i], l[i]])
+    # return debugList
 
 def dealerFinalArray(arr):
-    runningArray = [0.0] * (21 - 17 + 1)
+    arr = np.array(arr)
+    runningArray = np.zeros(21 - 17 + 1)
     for softness in [NO_ACE, SOFT, HARD]:
-        tempArr = arr[HAND_VALUE_ARRAY.index((17, softness)) : HAND_VALUE_ARRAY.index((21, softness)) + 1]
-        runningArray = addLists(runningArray, tempArr)
-    runningArray.append(arr[-1])
-    return runningArray
+        tempArr = arr[HAND_VALUE_ARRAY.index((17, softness)):HAND_VALUE_ARRAY.index((21, softness)) + 1]
+        runningArray += tempArr
+    runningArray = np.append(runningArray, arr[-1])
+    return runningArray.tolist()
 
 def getDealerResultFromUpcard(dealerUpcard, remainingDeck):
     softness = SOFT if dealerUpcard == 11 else NO_ACE
@@ -293,10 +295,11 @@ def checkStayEV(playerHandValue, dealerUpcard, remainingDeck):
 def checkHitEV(playerHandValue, dealerUpcard, isSoft = NO_ACE, remainingDeck = FULL_DECK):
     global hitEVcount
     hitEVcount += 1
-    if hitEVcount % 1000 == 0:
-        estimated_time, timePerEvent = estimate_completion_time(start_datetime, (hitEVcount - lastCount)/74239, (hitEVcount - lastCount))
-        print(f"Current time: {datetime.now()} Estimated completion time: {estimated_time} Time per event: {timePerEvent}")
-        #print(hitEVcount)
+    if hitEVcount % 10000 == 0:
+        #estimated_time, timePerEvent = estimate_completion_time(start_datetime, (hitEVcount - lastCount)/74239, (hitEVcount - lastCount))
+        #print(f"Current time: {datetime.now()} Estimated completion time: {estimated_time} Time per event: {timePerEvent}")
+        print(f"Current time: {datetime.now()}")
+        print(hitEVcount)
 
     HIT = 1
     STAY = 0
@@ -354,14 +357,15 @@ for i in typicalRange:
 
 combosAndOcc = getAllCombos(DECK_COUNT)
 
+potentialResults = get()
+potentialResults.reverse()
 for c in existing_results:
-    if c in possibleCombos:
-        possibleCombos.remove(c)
+    if tuple(c) in potentialResults:
+        potentialResults.remove(tuple(c))
     else:
         print(f"{c} not found")
 
-testCombosRemaining = possibleCombos.copy()
-testCombosRemaining.reverse()
+#testCombosRemaining = get()
 
 if not os.path.isfile(FILE_NAME):
 # Open CSV file for writing
@@ -370,12 +374,12 @@ if not os.path.isfile(FILE_NAME):
         # Write headers
         writer.writerow(['Player Low Card', 'Player High Card', 'Dealer Upcard', 'EV_hit', 'Best Decision', 'time(s)', 'Recursive Calls', 'Occurrences'])
 
-for playerLowCard, playerHighCard, dealerUpcard in testCombosRemaining:
+for playerLowCard, playerHighCard, dealerUpcard in potentialResults:
     print(f"{playerLowCard}, {playerHighCard}, {dealerUpcard} evaluated.")
     combo = [playerLowCard, playerHighCard, dealerUpcard]
-    if combo in existing_results:
-        print (f"{combo} founds and skipped")
-        break
+    # if combo in potentialResults:
+    #     print (f"{combo} founds and skipped")
+    #     break
 
     start = time.time()
     global start_datetime
